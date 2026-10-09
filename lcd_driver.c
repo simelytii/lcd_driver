@@ -575,6 +575,7 @@ static ssize_t lcd_write_file(struct file *file,
 	 */
 	len = min(count, (size_t)LCD_TEXT_MAX - 1);
 
+	cancel_delayed_work_sync(&lcd->display_work);
 	/*
 	 * Nukopijuojame tekstą iš userspace į kernelio buferį.
 	 */
@@ -603,12 +604,6 @@ static ssize_t lcd_write_file(struct file *file,
 	dev_info(&lcd->client->dev,
 		 "GDM1602A: received %zu characters\n",
 		 lcd->text_len);
-
-	/*
-	 * Atšaukiame ankstesnį suplanuotą work,
-	 * jei toks dar yra.
-	 */
-	cancel_delayed_work_sync(&lcd->display_work);
 
 	/*
 	 * Iškart parodyti pirmą puslapį.
