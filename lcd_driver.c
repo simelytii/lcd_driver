@@ -319,7 +319,7 @@ static int lcd_init(struct i2c_client *client)
 
     
     /*
-    * Create custom Lithuanian character 'ą'
+    * Create custom Lithuanian characters 'ąčęėįšųųū'
     * in CGRAM position 0.
     */
     ret = lcd_create_char(client, 0, a_ogonek);
@@ -376,6 +376,94 @@ static int lcd_write_text(struct i2c_client *client,
 		/*
 		 * Lietuviškos raidės UTF-8 formatu.
 		 */
+		
+		/* Ą = C4 84 -> CGRAM 0 */
+		if (i + 1 < len &&
+		    (u8)text[i] == 0xC4 &&
+		    (u8)text[i + 1] == 0x84) {
+			ret = lcd_data(client, 0);
+			if (ret < 0)
+				return ret;
+			i += 2;
+			continue;
+		}
+
+		/* Č = C4 8C -> CGRAM 1 */
+		if (i + 1 < len &&
+		    (u8)text[i] == 0xC4 &&
+		    (u8)text[i + 1] == 0x8C) {
+			ret = lcd_data(client, 1);
+			if (ret < 0)
+				return ret;
+			i += 2;
+			continue;
+		}
+
+		/* Ę = C4 98 -> CGRAM 2 */
+		if (i + 1 < len &&
+		    (u8)text[i] == 0xC4 &&
+		    (u8)text[i + 1] == 0x98) {
+			ret = lcd_data(client, 2);
+			if (ret < 0)
+				return ret;
+			i += 2;
+			continue;
+		}
+
+		/* Ė = C4 96 -> CGRAM 3 */
+		if (i + 1 < len &&
+		    (u8)text[i] == 0xC4 &&
+		    (u8)text[i + 1] == 0x96) {
+			ret = lcd_data(client, 3);
+			if (ret < 0)
+				return ret;
+			i += 2;
+			continue;
+		}
+
+		/* Į = C4 AE -> CGRAM 4 */
+		if (i + 1 < len &&
+		    (u8)text[i] == 0xC4 &&
+		    (u8)text[i + 1] == 0xAE) {
+			ret = lcd_data(client, 4);
+			if (ret < 0)
+				return ret;
+			i += 2;
+			continue;
+		}
+
+		/* Š = C5 A0 -> CGRAM 5 */
+		if (i + 1 < len &&
+		    (u8)text[i] == 0xC5 &&
+		    (u8)text[i + 1] == 0xA0) {
+			ret = lcd_data(client, 5);
+			if (ret < 0)
+				return ret;
+			i += 2;
+			continue;
+		}
+
+		/* Ų = C5 B2 -> CGRAM 6 */
+		if (i + 1 < len &&
+		    (u8)text[i] == 0xC5 &&
+		    (u8)text[i + 1] == 0xB2) {
+			ret = lcd_data(client, 6);
+			if (ret < 0)
+				return ret;
+			i += 2;
+			continue;
+		}
+
+		/* Ū = C5 AA -> CGRAM 7 */
+		if (i + 1 < len &&
+		    (u8)text[i] == 0xC5 &&
+		    (u8)text[i + 1] == 0xAA) {
+			ret = lcd_data(client, 7);
+			if (ret < 0)
+				return ret;
+			i += 2;
+			continue;
+		}
 
 		/* ą = C4 85 -> CGRAM 0 */
 		if (i + 1 < len &&
@@ -494,63 +582,150 @@ static int lcd_write_text(struct i2c_client *client,
 	return 0;
 }
 
+
+/*
+ * Return the byte length of one supported LCD character.
+ * Supported Lithuanian UTF-8 letters use two bytes.
+ */
+static size_t lcd_char_len(const char *text, size_t remaining)
+{
+    u8 first;
+    u8 second;
+
+    if (remaining < 2)
+        return 1;
+
+    first = (u8)text[0];
+    second = (u8)text[1];
+
+    if (first == 0xC4 &&
+        (second == 0x84 || second == 0x85 ||
+         second == 0x8C || second == 0x8D ||
+         second == 0x96 || second == 0x97 ||
+         second == 0x98 || second == 0x99 ||
+         second == 0xAE || second == 0xAF))
+        return 2;
+
+    if (first == 0xC5 &&
+        (second == 0xA0 || second == 0xA1 ||
+         second == 0xAA || second == 0xAB ||
+         second == 0xB2 || second == 0xB3))
+        return 2;
+
+    return 1;
+}
+
+/*
+ * Return the number of bytes occupied by up to max_chars
+ * LCD characters, starting at text.
+ */
+static size_t lcd_bytes_for_chars(const char *text,
+                                  size_t len,
+                                  size_t max_chars)
+{
+    size_t bytes = 0;
+    size_t chars = 0;
+    size_t char_len;
+
+    while (bytes < len && chars < max_chars) {
+        char_len = lcd_char_len(&text[bytes], len - bytes);
+        bytes += char_len;
+        chars++;
+    }
+
+    return bytes;
+}
+
+
+
 static void lcd_display_work(struct work_struct *work)
 {
-	struct lcd_data *data =
-		container_of(to_delayed_work(work),
-			     struct lcd_data, display_work);
+    struct lcd_data *data =
+        container_of(to_delayed_work(work),
+                     struct lcd_data, display_work);
 
-	size_t start;
-	size_t i;
-	int ret;
+    size_t start = 0;
+    size_t page_bytes = 0;
+    size_t first_row_bytes = 0;
+    size_t second_row_bytes = 0;
+    size_t remaining;
+    int ret;
 
-	start = data->page * LCD_PAGE_LEN;
+    /*
+     * Find the byte offset of the current 32-character page.
+     */
+    remaining = data->text_len;
 
-	if (start >= data->text_len) {
-		data->page = 0;
-		start = 0;
-	}
+    while (remaining > 0 && start < data->text_len &&
+           page_bytes < data->page * LCD_PAGE_LEN) {
+        size_t char_len;
 
-	/* Clear display */
-	ret = lcd_command(data->client, 0x01);
-	if (ret < 0)
-		return;
+        char_len = lcd_char_len(&data->text[start],
+                                data->text_len - start);
+        start += char_len;
+        page_bytes++;
+    }
 
-	msleep(2);
+    if (start >= data->text_len && data->text_len > 0) {
+        data->page = 0;
+        start = 0;
+        page_bytes = 0;
+    }
 
-	/* First row */
+    remaining = data->text_len - start;
+
+    first_row_bytes = lcd_bytes_for_chars(
+        &data->text[start], remaining, 16);
+
+    second_row_bytes = 0;
+
+    if (remaining > first_row_bytes) {
+        second_row_bytes = lcd_bytes_for_chars(
+            &data->text[start + first_row_bytes],
+            remaining - first_row_bytes, 16);
+    }
+
+    /* Clear display */
+    ret = lcd_command(data->client, 0x01);
+    if (ret < 0)
+        return;
+
+    msleep(2);
+
+    /* First row */
     ret = lcd_command(data->client, 0x80);
     if (ret < 0)
-	    return;
+        return;
 
     ret = lcd_write_text(data->client,
-		     &data->text[start],
-		     min_t(size_t, 16, data->text_len - start));
+                         &data->text[start],
+                         first_row_bytes);
     if (ret < 0)
-	    return;
+        return;
 
-    i = min_t(size_t, 16, data->text_len - start);
+    /* Second row */
+    ret = lcd_command(data->client, 0xC0);
+    if (ret < 0)
+        return;
 
-	/* Second row */
-	ret = lcd_command(data->client, 0xc0);
-	if (ret < 0)
-		return;
+    if (second_row_bytes > 0) {
+        ret = lcd_write_text(
+            data->client,
+            &data->text[start + first_row_bytes],
+            second_row_bytes);
+        if (ret < 0)
+            return;
+    }
 
-	for (; i < LCD_PAGE_LEN && start + i < data->text_len; i++) {
-		ret = lcd_data(data->client, data->text[start + i]);
-		if (ret < 0)
-			return;
-	}
-
-	/* Only cycle pages when text is longer than 32 characters */
-	if (data->text_len > LCD_PAGE_LEN) {
-		data->page++;
-
-		schedule_delayed_work(&data->display_work,
-				      LCD_PAGE_DELAY);
-	} else {
-		data->page = 0;
-	}
+    /* Advance to the next page after five seconds. */
+    if (data->text_len > start + first_row_bytes +
+                         second_row_bytes) {
+        data->page++;
+        schedule_delayed_work(&data->display_work,
+                              LCD_PAGE_DELAY);
+    } else {
+        data->page = 0;
+    }
 }
 
 /*
