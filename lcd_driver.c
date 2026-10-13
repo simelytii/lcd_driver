@@ -251,7 +251,7 @@ static const u8 u_macron[8] = {
 };
 
 
-/* Atskirai programuojami didžiųjų raidžių šablonai. */
+/* Custom glyph patterns for uppercase Lithuanian letters. */
 static const u8 A_ogonek[8] = {
     0b00100, 0b01010, 0b10001, 0b10001,
     0b11111, 0b10001, 0b10001, 0b00010
@@ -461,9 +461,9 @@ static int lcd_init(struct i2c_client *client)
 
     
     /*
-    * Create custom Lithuanian characters 'ąčęėįšųųū'
-    * in CGRAM position 0.
-    */
+     * Initialize the LCD's eight CGRAM slots with custom
+     * Lithuanian character glyphs.
+     */
     ret = lcd_create_char(client, 0, a_ogonek);
     if (ret < 0)
 	    return ret;
@@ -496,7 +496,7 @@ static int lcd_init(struct i2c_client *client)
     if (ret < 0)
 	    return ret;
 	
-        /* Grįžtame į DDRAM, kad galėtume rodyti tekstą */
+        /* Return to DDRAM mode to display text. */
     ret = lcd_command(client, 0x80);
     if (ret < 0)
 	    return ret;
@@ -734,13 +734,13 @@ static ssize_t lcd_write_file(struct file *file,
 		return 0;
 
 	/*
-	 * Apribojame teksto ilgį iki mūsų buferio dydžio.
+	 * Limit the text length to the buffer capacity.
 	 */
 	len = min(count, (size_t)LCD_TEXT_MAX - 1);
 
 	cancel_delayed_work_sync(&lcd->display_work);
 	/*
-	 * Nukopijuojame tekstą iš userspace į kernelio buferį.
+	 * Copy the input from userspace into the kernel buffer.
 	 */
 	if (copy_from_user(lcd->text, buf, len))
 		return -EFAULT;
@@ -748,7 +748,7 @@ static ssize_t lcd_write_file(struct file *file,
 	lcd->text[len] = '\0';
 
 	/*
-	 * Pašaliname \n ir \r, kuriuos dažnai prideda echo.
+	 * Remove \n and \r, which are often appended by echo.
 	 */
 	while (len > 0 &&
 	       (lcd->text[len - 1] == '\n' ||
@@ -760,7 +760,7 @@ static ssize_t lcd_write_file(struct file *file,
 	lcd->text_len = len;
 
 	/*
-	 * Pradedame nuo pirmo 32 simbolių puslapio.
+	 * Start with the first 32-character page.
 	 */
 	lcd->page = 0;
 
@@ -769,7 +769,7 @@ static ssize_t lcd_write_file(struct file *file,
 		 lcd->text_len);
 
 	/*
-	 * Iškart parodyti pirmą puslapį.
+	 * Display the first page immediately.
 	 */
 	schedule_delayed_work(&lcd->display_work, 0);
 
