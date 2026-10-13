@@ -44,6 +44,7 @@ Check the patch from the kernel source directory:
       ~/linux_embedded_tasks/Task7/patches/0001-add-gdm1602a-lcd-device-tree.patch
 
 ## Build
+\nNote: Update the paths in the `Makefile` and the example commands to match your local directory structure and development environment.
 
 The Makefile uses the configured Linux kernel build directory and ARM
 cross-compiler:
