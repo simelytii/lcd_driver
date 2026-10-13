@@ -1,4 +1,5 @@
 #include <linux/module.h>
+#include <linux/kernel.h>
 #include <linux/i2c.h>
 #include <linux/of.h>
 #include <linux/delay.h>
@@ -249,6 +250,147 @@ static const u8 u_macron[8] = {
 	0b00000
 };
 
+
+/* Atskirai programuojami didžiųjų raidžių šablonai. */
+static const u8 A_ogonek[8] = {
+    0b00100, 0b01010, 0b10001, 0b10001,
+    0b11111, 0b10001, 0b10001, 0b00010
+};
+
+static const u8 C_caron[8] = {
+    0b01010, 0b00100, 0b01110, 0b10001,
+    0b10000, 0b10000, 0b01110, 0b00000
+};
+
+static const u8 E_ogonek[8] = {
+    0b01110, 0b10000, 0b10000, 0b11110,
+    0b10000, 0b10000, 0b01110, 0b00010
+};
+
+static const u8 E_dot[8] = {
+    0b00100, 0b01110, 0b10000, 0b10000,
+    0b11110, 0b10000, 0b01110, 0b00000
+};
+
+static const u8 I_ogonek[8] = {
+    0b01110, 0b00100, 0b00100, 0b00100,
+    0b00100, 0b00100, 0b01110, 0b00010
+};
+
+static const u8 S_caron[8] = {
+    0b01010, 0b00100, 0b01111, 0b10000,
+    0b01110, 0b00001, 0b11110, 0b00000
+};
+
+static const u8 U_ogonek[8] = {
+    0b10001, 0b10001, 0b10001, 0b10001,
+    0b10001, 0b10001, 0b01110, 0b00010
+};
+
+static const u8 U_macron[8] = {
+    0b01110, 0b10001, 0b10001, 0b10001,
+    0b10001, 0b10001, 0b01110, 0b00000
+};
+
+static const u8 z_caron[8] = {
+    0b01010, 0b00100, 0b00000, 0b01111,
+    0b00010, 0b00100, 0b01000, 0b01111
+};
+
+static const u8 Z_caron[8] = {
+    0b01010, 0b00100, 0b11111, 0b00010,
+    0b00100, 0b01000, 0b11111, 0b00000
+};
+
+
+/*
+ * Lithuanian UTF-8 character definitions.
+ * CGRAM slots are assigned dynamically for each displayed page.
+ */
+struct lcd_lithuanian_glyph {
+	u8 first;
+	u8 second;
+	const u8 *bitmap;
+	u8 fallback;
+};
+
+static const struct lcd_lithuanian_glyph lcd_lithuanian_glyphs[] = {
+	{ 0xC4, 0x84, A_ogonek, 'A' }, /* Ą */
+	{ 0xC4, 0x85, a_ogonek, 'a' }, /* ą */
+	{ 0xC4, 0x8C, C_caron,  'C' }, /* Č */
+	{ 0xC4, 0x8D, c_caron,  'c' }, /* č */
+	{ 0xC4, 0x98, E_ogonek, 'E' }, /* Ę */
+	{ 0xC4, 0x99, e_ogonek, 'e' }, /* ę */
+	{ 0xC4, 0x96, E_dot,    'E' }, /* Ė */
+	{ 0xC4, 0x97, e_dot,    'e' }, /* ė */
+	{ 0xC4, 0xAE, I_ogonek, 'I' }, /* Į */
+	{ 0xC4, 0xAF, i_ogonek, 'i' }, /* į */
+	{ 0xC5, 0xA0, S_caron,  'S' }, /* Š */
+	{ 0xC5, 0xA1, s_caron,  's' }, /* š */
+	{ 0xC5, 0xB2, U_ogonek, 'U' }, /* Ų */
+	{ 0xC5, 0xB3, u_ogonek, 'u' }, /* ų */
+	{ 0xC5, 0xAA, U_macron, 'U' }, /* Ū */
+	{ 0xC5, 0xAB, u_macron, 'u' }, /* ū */
+	{ 0xC5, 0xBD, Z_caron,  'Z' }, /* Ž */
+	{ 0xC5, 0xBE, z_caron,  'z' }, /* ž */
+};
+
+#define LCD_LITHUANIAN_GLYPH_COUNT ARRAY_SIZE(lcd_lithuanian_glyphs)
+
+
+/*
+ * Assign up to eight CGRAM slots to the Lithuanian glyphs
+ * needed by the current 32-character page.
+ * Unassigned entries use their ASCII fallback when displayed.
+ */
+static int lcd_prepare_page_glyphs(struct i2c_client *client,
+                                   const char *text,
+                                   size_t len,
+                                   u8 *slots)
+{
+	size_t i;
+	size_t glyph_index;
+	u8 next_slot = 0;
+	int ret;
+
+	for (glyph_index = 0;
+	     glyph_index < LCD_LITHUANIAN_GLYPH_COUNT;
+	     glyph_index++)
+		slots[glyph_index] = 0xFF;
+
+	i = 0;
+	while (i + 1 < len) {
+		bool found = false;
+
+		for (glyph_index = 0;
+		     glyph_index < LCD_LITHUANIAN_GLYPH_COUNT;
+		     glyph_index++) {
+			if ((u8)text[i] != lcd_lithuanian_glyphs[glyph_index].first ||
+			    (u8)text[i + 1] != lcd_lithuanian_glyphs[glyph_index].second)
+				continue;
+
+			found = true;
+
+			if (slots[glyph_index] == 0xFF && next_slot < 8) {
+				ret = lcd_create_char(
+					client, next_slot,
+					lcd_lithuanian_glyphs[glyph_index].bitmap);
+				if (ret < 0)
+					return ret;
+
+				slots[glyph_index] = next_slot;
+				next_slot++;
+			}
+
+			break;
+		}
+
+		i += found ? 2 : 1;
+	}
+
+	return 0;
+}
+
 /*
  * Initialize HD44780 LCD in 4-bit mode.
  */
@@ -366,212 +508,46 @@ static int lcd_init(struct i2c_client *client)
     }
 
 static int lcd_write_text(struct i2c_client *client,
-			  const char *text, size_t len)
+                          const char *text, size_t len,
+                          const u8 *slots)
 {
 	size_t i = 0;
+	size_t glyph_index;
 	int ret;
 
 	while (i < len) {
+		bool matched = false;
 
-		/*
-		 * Lietuviškos raidės UTF-8 formatu.
-		 */
-		
-		/* Ą = C4 84 -> CGRAM 0 */
-		if (i + 1 < len &&
-		    (u8)text[i] == 0xC4 &&
-		    (u8)text[i + 1] == 0x84) {
-			ret = lcd_data(client, 0);
-			if (ret < 0)
-				return ret;
-			i += 2;
-			continue;
+		if (i + 1 < len) {
+			for (glyph_index = 0;
+			     glyph_index < LCD_LITHUANIAN_GLYPH_COUNT;
+			     glyph_index++) {
+				const struct lcd_lithuanian_glyph *glyph =
+					&lcd_lithuanian_glyphs[glyph_index];
+				u8 output;
+
+				if ((u8)text[i] != glyph->first ||
+				    (u8)text[i + 1] != glyph->second)
+					continue;
+
+				if (slots[glyph_index] != 0xFF)
+					output = slots[glyph_index];
+				else
+					output = glyph->fallback;
+
+				ret = lcd_data(client, output);
+				if (ret < 0)
+					return ret;
+
+				i += 2;
+				matched = true;
+				break;
+			}
 		}
 
-		/* Č = C4 8C -> CGRAM 1 */
-		if (i + 1 < len &&
-		    (u8)text[i] == 0xC4 &&
-		    (u8)text[i + 1] == 0x8C) {
-			ret = lcd_data(client, 1);
-			if (ret < 0)
-				return ret;
-			i += 2;
+		if (matched)
 			continue;
-		}
 
-		/* Ę = C4 98 -> CGRAM 2 */
-		if (i + 1 < len &&
-		    (u8)text[i] == 0xC4 &&
-		    (u8)text[i + 1] == 0x98) {
-			ret = lcd_data(client, 2);
-			if (ret < 0)
-				return ret;
-			i += 2;
-			continue;
-		}
-
-		/* Ė = C4 96 -> CGRAM 3 */
-		if (i + 1 < len &&
-		    (u8)text[i] == 0xC4 &&
-		    (u8)text[i + 1] == 0x96) {
-			ret = lcd_data(client, 3);
-			if (ret < 0)
-				return ret;
-			i += 2;
-			continue;
-		}
-
-		/* Į = C4 AE -> CGRAM 4 */
-		if (i + 1 < len &&
-		    (u8)text[i] == 0xC4 &&
-		    (u8)text[i + 1] == 0xAE) {
-			ret = lcd_data(client, 4);
-			if (ret < 0)
-				return ret;
-			i += 2;
-			continue;
-		}
-
-		/* Š = C5 A0 -> CGRAM 5 */
-		if (i + 1 < len &&
-		    (u8)text[i] == 0xC5 &&
-		    (u8)text[i + 1] == 0xA0) {
-			ret = lcd_data(client, 5);
-			if (ret < 0)
-				return ret;
-			i += 2;
-			continue;
-		}
-
-		/* Ų = C5 B2 -> CGRAM 6 */
-		if (i + 1 < len &&
-		    (u8)text[i] == 0xC5 &&
-		    (u8)text[i + 1] == 0xB2) {
-			ret = lcd_data(client, 6);
-			if (ret < 0)
-				return ret;
-			i += 2;
-			continue;
-		}
-
-		/* Ū = C5 AA -> CGRAM 7 */
-		if (i + 1 < len &&
-		    (u8)text[i] == 0xC5 &&
-		    (u8)text[i + 1] == 0xAA) {
-			ret = lcd_data(client, 7);
-			if (ret < 0)
-				return ret;
-			i += 2;
-			continue;
-		}
-
-		/* ą = C4 85 -> CGRAM 0 */
-		if (i + 1 < len &&
-		    (u8)text[i] == 0xC4 &&
-		    (u8)text[i + 1] == 0x85) {
-
-			ret = lcd_data(client, 0);
-			if (ret < 0)
-				return ret;
-
-			i += 2;
-			continue;
-		}
-
-		/* č = C4 8D -> CGRAM 1 */
-		if (i + 1 < len &&
-		    (u8)text[i] == 0xC4 &&
-		    (u8)text[i + 1] == 0x8D) {
-
-			ret = lcd_data(client, 1);
-			if (ret < 0)
-				return ret;
-
-			i += 2;
-			continue;
-		}
-
-		/* ę = C4 99 -> CGRAM 2 */
-		if (i + 1 < len &&
-		    (u8)text[i] == 0xC4 &&
-		    (u8)text[i + 1] == 0x99) {
-
-			ret = lcd_data(client, 2);
-			if (ret < 0)
-				return ret;
-
-			i += 2;
-			continue;
-		}
-
-		/* ė = C4 97 -> CGRAM 3 */
-		if (i + 1 < len &&
-		    (u8)text[i] == 0xC4 &&
-		    (u8)text[i + 1] == 0x97) {
-
-			ret = lcd_data(client, 3);
-			if (ret < 0)
-				return ret;
-
-			i += 2;
-			continue;
-		}
-
-		/* į = C4 AF -> CGRAM 4 */
-		if (i + 1 < len &&
-		    (u8)text[i] == 0xC4 &&
-		    (u8)text[i + 1] == 0xAF) {
-
-			ret = lcd_data(client, 4);
-			if (ret < 0)
-				return ret;
-
-			i += 2;
-			continue;
-		}
-
-		/* š = C5 A1 -> CGRAM 5 */
-		if (i + 1 < len &&
-		    (u8)text[i] == 0xC5 &&
-		    (u8)text[i + 1] == 0xA1) {
-
-			ret = lcd_data(client, 5);
-			if (ret < 0)
-				return ret;
-
-			i += 2;
-			continue;
-		}
-
-		/* ų = C5 B3 -> CGRAM 6 */
-		if (i + 1 < len &&
-		    (u8)text[i] == 0xC5 &&
-		    (u8)text[i + 1] == 0xB3) {
-
-			ret = lcd_data(client, 6);
-			if (ret < 0)
-				return ret;
-
-			i += 2;
-			continue;
-		}
-        
-        /* ū = C5 AB -> CGRAM 7 */
-        if (i + 1 < len &&
-            (u8)text[i] == 0xC5 &&
-            (u8)text[i + 1] == 0xAB) {
-
-	        ret = lcd_data(client, 7);
-	        if (ret < 0)
-		    return ret;
-
-	    i += 2;
-	    continue;
-        }
-
-		/*
-		 * Paprastas ASCII simbolis.
-		 */
 		ret = lcd_data(client, (u8)text[i]);
 		if (ret < 0)
 			return ret;
@@ -582,11 +558,6 @@ static int lcd_write_text(struct i2c_client *client,
 	return 0;
 }
 
-
-/*
- * Return the byte length of one supported LCD character.
- * Supported Lithuanian UTF-8 letters use two bytes.
- */
 static size_t lcd_char_len(const char *text, size_t remaining)
 {
     u8 first;
@@ -609,7 +580,8 @@ static size_t lcd_char_len(const char *text, size_t remaining)
     if (first == 0xC5 &&
         (second == 0xA0 || second == 0xA1 ||
          second == 0xAA || second == 0xAB ||
-         second == 0xB2 || second == 0xB3))
+         second == 0xB2 || second == 0xB3 ||
+         second == 0xBD || second == 0xBE))
         return 2;
 
     return 1;
@@ -649,6 +621,7 @@ static void lcd_display_work(struct work_struct *work)
     size_t first_row_bytes = 0;
     size_t second_row_bytes = 0;
     size_t remaining;
+    u8 glyph_slots[LCD_LITHUANIAN_GLYPH_COUNT];
     int ret;
 
     /*
@@ -685,6 +658,17 @@ static void lcd_display_work(struct work_struct *work)
             remaining - first_row_bytes, 16);
     }
 
+    /*
+     * Prepare one shared CGRAM map for both LCD rows.
+     */
+    ret = lcd_prepare_page_glyphs(
+        data->client,
+        &data->text[start],
+        first_row_bytes + second_row_bytes,
+        glyph_slots);
+    if (ret < 0)
+        return;
+
     /* Clear display */
     ret = lcd_command(data->client, 0x01);
     if (ret < 0)
@@ -699,7 +683,8 @@ static void lcd_display_work(struct work_struct *work)
 
     ret = lcd_write_text(data->client,
                          &data->text[start],
-                         first_row_bytes);
+                         first_row_bytes,
+                         glyph_slots);
     if (ret < 0)
         return;
 
@@ -712,7 +697,8 @@ static void lcd_display_work(struct work_struct *work)
         ret = lcd_write_text(
             data->client,
             &data->text[start + first_row_bytes],
-            second_row_bytes);
+            second_row_bytes,
+            glyph_slots);
         if (ret < 0)
             return;
     }
