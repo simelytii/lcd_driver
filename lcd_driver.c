@@ -725,6 +725,8 @@ static void lcd_display_work(struct work_struct *work)
                               LCD_PAGE_DELAY);
     } else {
         data->page = 0;
+        schedule_delayed_work(&data->display_work,
+                              LCD_PAGE_DELAY);
     }
 }
 
