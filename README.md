@@ -85,15 +85,3 @@ implementation maps selected Lithuanian characters to these slots.
 - Uppercase and lowercase Lithuanian characters do not yet have distinct
   custom glyphs.
 
-## Project structure
-
-    Task7/
-    ├── lcd_driver.c
-    ├── Makefile
-    ├── README.md
-    └── patches/
-        └── 0001-add-gdm1602a-lcd-device-tree.patch
-
-## License
-
-Specify a license before distributing this project.
