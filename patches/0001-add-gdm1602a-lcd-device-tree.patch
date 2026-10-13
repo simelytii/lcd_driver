@@ -1,0 +1,19 @@
+--- a/arch/arm/boot/dts/broadcom/bcm2837-rpi-3-b.dts
++++ b/arch/arm/boot/dts/broadcom/bcm2837-rpi-3-b.dts
+@@ -22,6 +22,16 @@
+ 	};
+ };
+ 
++
++&i2c1 {
++	status = "okay";
++
++	lcd@3f {
++		compatible = "custom,gdm1602a";
++		reg = <0x3f>;
++	};
++};
++
+ &bt {
+ 	shutdown-gpios = <&expgpio 0 GPIO_ACTIVE_HIGH>;
+ };
